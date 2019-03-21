@@ -6,6 +6,8 @@ import sqlite3
 import datetime
 import sys
 
+DIFF_THRESHOLD = 2
+
 class SourceDB:
     def __init__(self, code):
         filename = 'daysise_{0}.sqlite'.format(code)
@@ -25,12 +27,21 @@ class SourceDB:
             row = {'DAY': day, 'CLOSE': src[1], 'CHANGE': src[2], 'OPEN': src[3], 'HIGH': src[4], 'LOW': src[5], 'VOLUME': src[6]}
             self.rows.append(row)
 
-        for i in range(2, len(self.rows)):
-            diff = self.rows[i - 1]['CLOSE'] - self.rows[i]['CLOSE']
-            if abs(diff) != self.rows[i]['CHANGE']:
-                raise RuntimeError("CHANGE value check failed at index %d" % (i))
+        diff_count = 0
+        for i in range(1, len(self.rows)):
+            c0 = self.rows[i - 1]['CLOSE'] 
+            c1 = self.rows[i]['CLOSE'] 
+            change = abs(c1 - c0)
+            expect = self.rows[i]['CHANGE']
+            if change != expect:
+                diff = abs(expect - change)
+                perc = 100.0 * float(diff) / float(self.rows[i]['CLOSE'])
+                print('%s ~ %s: Expected change:%d, actual:%d, diff=%d(%.2f%%)' % (self.rows[i - 1]['DAY'], self.rows[i]['DAY'], expect, change, diff, perc))
+                diff_count += 1
+                if perc > DIFF_THRESHOLD:
+                    raise RuntimeError("Too big CHANGE difference: %d(%.2f%%) near %s" % (diff, perc, self.rows[i]['DAY']))
 
-        return len(self.rows)
+        return len(self.rows), diff_count
 
     def get_rows(self):
         return self.rows
@@ -71,7 +82,7 @@ CREATE TABLE daysise
         for row in src.get_rows():
             self.csr.execute('REPLACE INTO {0} (DAY,CODE, O,H,L,C,V) VALUES(%s,%s, %s,%s,%s,%s,%s)'.format(MYSQL_TABLE_NAME),
                 (row['DAY'], src.code, row['OPEN'], row['HIGH'], row['LOW'], row['CLOSE'], row['VOLUME']))
-            #print(row)
+            print(row)
             cnt += 1
         return cnt
 
@@ -100,8 +111,14 @@ def main():
             return
 
     src = SourceDB(shcode)
-    if src.load_all() == 0:
+    num_rows, diff_cnt = src.load_all()
+    if num_rows == 0:
         raise RuntimeError("Source DB has no rows")
+
+    if diff_cnt > 0:
+        if input('Inconsistency found(%d). Proceed to insert into MySQL? [y/N]' % diff_cnt) != 'y':
+            print('Aborted')
+            return
 
     dst = TargetDB(cfgfile)
     num_inserted = dst.insert_all(src)
