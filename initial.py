@@ -125,6 +125,31 @@ CREATE TABLE IF NOT EXISTS {0}
         for row in self.csr.fetchall():
             print(row)
 
+def get_hms():
+    return datetime.datetime.now().strftime('%H:%M:%S')
+
+def run_initial_crawl(shcode, sleep_sec, verbose):
+    print(get_hms(), "종목코드 '%s' 크롤링을 시작합니다." % (shcode))
+    first_page_html = get_html_content(shcode, 1)
+    last_page_num = get_last_page_num(first_page_html, shcode)
+    print("맨 마지막 페이지는 %d 입니다." % (last_page_num))
+
+    rows = parse_sise_page(first_page_html)    # test parsing
+    print("최신 데이터 날짜는 %s 입니다." % (rows[0][0].isoformat()))
+
+    localdb = db_persist(shcode)
+
+    for page_num in range(1, last_page_num +1):
+        time.sleep(sleep_sec)
+        page_html = get_html_content(shcode, page_num)
+        rows = parse_sise_page(page_html)
+        num_rows = len(rows)
+        if verbose:
+            print(get_hms(), "[%s] 페이지 %d: %d rows (%s ~ %s)" % (shcode, page_num, num_rows, rows[0][0].isoformat(), rows[num_rows-1][0].isoformat()))
+        localdb.insert_rows(rows)
+
+    localdb.close()
+    print(get_hms(), "종목코드 '%s' 크롤링을 마쳤습니다." % (shcode))
 
 def main():
     shcode = ""
@@ -142,25 +167,7 @@ def main():
             print("중단합니다.")
             return
 
-    print("종목코드 '%s' 크롤링을 시작합니다." % (shcode))
-    first_page_html = get_html_content(shcode, 1)
-    last_page_num = get_last_page_num(first_page_html, shcode)
-    print("맨 마지막 페이지는 %d 입니다." % (last_page_num))
-
-    rows = parse_sise_page(first_page_html)    # test parsing
-    print("최신 데이터 날짜는 %s 입니다." % (rows[0][0].isoformat()))
-
-    localdb = db_persist(shcode)
-
-    for page_num in range(1, last_page_num +1):
-        time.sleep(5)
-        page_html = get_html_content(shcode, page_num)
-        rows = parse_sise_page(page_html)
-        num_rows = len(rows)
-        print("%s 페이지 %d: %d rows (%s ~ %s)" % (shcode, page_num, num_rows, rows[0][0].isoformat(), rows[num_rows-1][0].isoformat()))
-        localdb.insert_rows(rows)
-
-    localdb.close()
+    run_initial_crawl(shcode, 3, True)
     print("Done!")
 
 if __name__ == "__main__":
