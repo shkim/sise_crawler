@@ -12,10 +12,14 @@ import sqlite3
 re_valid_date = re.compile(r'^(\d{4})\.(\d{2})\.(\d{2})$')
 re_last_pagenum = re.compile(r'\?code=(\d+)&page=(\d+)$')
 
+class InvalidDateError(Exception):
+    pass
+
+
 def normalize_date(dt):
     m = re_valid_date.match(dt)
     if not m:
-        raise RuntimeError('Invalid date: ' + dt)
+        raise InvalidDateError('Invalid date: ' + dt)
 
     year = int(m.group(1))
     month = int(m.group(2))
@@ -134,8 +138,12 @@ def run_initial_crawl(shcode, sleep_sec, verbose):
     last_page_num = get_last_page_num(first_page_html, shcode)
     print("맨 마지막 페이지는 %d 입니다." % (last_page_num))
 
-    rows = parse_sise_page(first_page_html)    # test parsing
-    print("최신 데이터 날짜는 %s 입니다." % (rows[0][0].isoformat()))
+    try:
+        rows = parse_sise_page(first_page_html)    # test parsing
+        print("최신 데이터 날짜는 %s 입니다." % (rows[0][0].isoformat()))
+    except InvalidDateError:
+        print("첫 페이지 날짜 파싱에 실패하였습니다. 폐지된 종목 같습니다:", shcode)
+        return
 
     localdb = db_persist(shcode)
 
@@ -172,4 +180,5 @@ def main():
 
 if __name__ == "__main__":
     #db_persist('069500').dump_all()
+    #run_initial_crawl('222170', 5, True)
     main()
