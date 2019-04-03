@@ -29,8 +29,8 @@ class SourceDB:
 
         diff_count = 0
         for i in range(1, len(self.rows)):
-            c0 = self.rows[i - 1]['CLOSE'] 
-            c1 = self.rows[i]['CLOSE'] 
+            c0 = self.rows[i - 1]['CLOSE']
+            c1 = self.rows[i]['CLOSE']
             change = abs(c1 - c0)
             expect = self.rows[i]['CHANGE']
             if change != expect:
@@ -77,14 +77,34 @@ CREATE TABLE daysise
         self.conn.commit()
         self.conn.close()
 
-    def insert_all(self, src):
+    def insert_all(self, src, verbose =False):
         cnt = 0
         for row in src.get_rows():
             self.csr.execute('REPLACE INTO {0} (DAY,CODE, O,H,L,C,V) VALUES(%s,%s, %s,%s,%s,%s,%s)'.format(MYSQL_TABLE_NAME),
                 (row['DAY'], src.code, row['OPEN'], row['HIGH'], row['LOW'], row['CLOSE'], row['VOLUME']))
-            print(row)
+            if verbose:
+                print(row)
             cnt += 1
         return cnt
+
+
+def copy_sqlite_to_mysql(shcode, cfgfile, is_interactive):
+    src = SourceDB(shcode)
+    num_rows, diff_cnt = src.load_all()
+    if num_rows == 0:
+        print('Source DB (%s) has no rows' % (shcode))
+
+    if diff_cnt > 0 and is_interactive:
+        if input('Inconsistency found(%d). Proceed to insert into MySQL? [y/N]' % diff_cnt) != 'y':
+            print('Aborted')
+            return
+
+    dst = TargetDB(cfgfile)
+    num_inserted = dst.insert_all(src, is_interactive)
+
+    src.close()
+    dst.close()
+    print('종목코드 %s: %s 항목을 복사하였습니다.' % (shcode, num_inserted))
 
 
 def main():
@@ -110,22 +130,8 @@ def main():
             print("중단합니다.")
             return
 
-    src = SourceDB(shcode)
-    num_rows, diff_cnt = src.load_all()
-    if num_rows == 0:
-        raise RuntimeError("Source DB has no rows")
+    copy_sqlite_to_mysql(shcode, cfgfile, True)
 
-    if diff_cnt > 0:
-        if input('Inconsistency found(%d). Proceed to insert into MySQL? [y/N]' % diff_cnt) != 'y':
-            print('Aborted')
-            return
-
-    dst = TargetDB(cfgfile)
-    num_inserted = dst.insert_all(src)
-
-    src.close()
-    dst.close()
-    print("Done", num_inserted)
 
 if __name__ == "__main__":
     main()
